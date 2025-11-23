@@ -25,9 +25,9 @@ static bool d_down = false;
 
 static layer_state_t saved_layers = 0;
 static bool          game_mode    = false;
-static uint8_t       wasd_keys_pressed = 0;  // Bitmask: bit 0=W, 1=A, 2=S, 3=D
-static uint8_t       wasd_alternating_count = 0;  // Count of alternating WASD presses
-static uint8_t       last_wasd_key = 0;  // Track last WASD key pressed (1=W, 2=A, 3=S, 4=D)
+static uint8_t       wasd_keys_pressed = 0;
+static uint8_t       wasd_alternating_count = 0;
+static uint8_t       last_wasd_key = 0;
 
 #define KC_TASK LGUI(KC_TAB)
 #define KC_FLXP LGUI(KC_E)
@@ -94,7 +94,24 @@ void keyboard_post_init_user(void) {
     layer_on(WIN_HRM);
 }
 
-// Helper function to enter game mode
+static void reset_wasd_tracking(void) {
+    wasd_keys_pressed = 0;
+    wasd_alternating_count = 0;
+    last_wasd_key = 0;
+}
+
+static void handle_socd(bool pressed, uint16_t key, bool *key_down, uint16_t opposite_key, bool *opposite_down) {
+    if (pressed) {
+        if (*opposite_down) unregister_code(opposite_key);
+        register_code(key);
+        *key_down = true;
+    } else {
+        unregister_code(key);
+        *key_down = false;
+        if (*opposite_down) register_code(opposite_key);
+    }
+}
+
 static void enter_game_mode(void) {
     tap_code(KC_F24);
     saved_layers = layer_state;
@@ -110,169 +127,67 @@ static void exit_game_mode(void) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    // Get the physical row and column of the pressed key
     uint8_t row = record->event.key.row;
     uint8_t col = record->event.key.col;
-
-    // Physical key positions
     bool is_w = (row == 2 && col == 2);
     bool is_a = (row == 3 && col == 1);
     bool is_s = (row == 3 && col == 2);
     bool is_d = (row == 3 && col == 3);
-    bool is_j = (row == 3 && col == 7);      // J key
-    bool is_k = (row == 3 && col == 8);      // K key
-    bool is_l = (row == 3 && col == 9);      // L key
-    bool is_scln = (row == 3 && col == 10);  // ; key
-
-    // Exit game mode on Windows/GUI key press
+    bool is_j = (row == 3 && col == 7);
+    bool is_k = (row == 3 && col == 8);
+    bool is_l = (row == 3 && col == 9);
+    bool is_scln = (row == 3 && col == 10);
     if (game_mode && (keycode == KC_LGUI || keycode == KC_RGUI || keycode == KC_LWIN || keycode == KC_RWIN)) {
-        if (record->event.pressed) {
-            exit_game_mode();
-        }
-        return true;  // Process the key normally (will activate GUI)
-    }
-
-    // Exit game mode on right-hand homerow physical keys (J, K, L, ;) - these function as homerow mods
-    if (game_mode && (is_j || is_k || is_l || is_scln)) {
-        if (record->event.pressed) {
-            exit_game_mode();
-        }
-        // Let QMK handle the homerow mod tap/hold logic in the HRM layer
+        if (record->event.pressed) exit_game_mode();
         return true;
     }
-
-    // WASD detection for game mode entry (using physical key positions)
+    if (game_mode && (is_j || is_k || is_l || is_scln)) {
+        if (record->event.pressed) exit_game_mode();
+        return true;
+    }
     if (!game_mode && record->event.pressed) {
-        bool is_wasd_key = is_w || is_a || is_s || is_d;
-
-        if (is_wasd_key) {
-            uint8_t current_key = is_w ? 1 : (is_a ? 2 : (is_s ? 3 : 4));
-
-            // Method 1: Track all 4 unique keys pressed in any order
-            if (is_w) wasd_keys_pressed |= (1 << 0);
-            if (is_a) wasd_keys_pressed |= (1 << 1);
-            if (is_s) wasd_keys_pressed |= (1 << 2);
-            if (is_d) wasd_keys_pressed |= (1 << 3);
-
-            // Check if all 4 keys have been pressed
-            if (wasd_keys_pressed == 0x0F) {  // 0b1111 = all 4 bits set
-                wasd_keys_pressed = 0;
-                wasd_alternating_count = 0;
-                last_wasd_key = 0;
-                enter_game_mode();
-                return true;
-            }
-
-            // Method 2: Track alternating presses (non-repeating)
+        uint8_t current_key = is_w ? 1 : (is_a ? 2 : (is_s ? 3 : (is_d ? 4 : 0)));
+        if (current_key) {
+            wasd_keys_pressed |= (1 << (current_key - 1));
             if (current_key != last_wasd_key) {
                 wasd_alternating_count++;
                 last_wasd_key = current_key;
-
-                if (wasd_alternating_count >= 8) {
-                    wasd_keys_pressed = 0;
-                    wasd_alternating_count = 0;
-                    last_wasd_key = 0;
-                    enter_game_mode();
-                    return true;
-                }
             }
-            // If same key pressed twice in a row, don't increment alternating count
+            if (wasd_keys_pressed == 0x0F || wasd_alternating_count >= 8) {
+                reset_wasd_tracking();
+                enter_game_mode();
+                return true;
+            }
         } else {
-            // Non-WASD key pressed, reset all tracking
-            wasd_keys_pressed = 0;
-            wasd_alternating_count = 0;
-            last_wasd_key = 0;
+            reset_wasd_tracking();
         }
     }
 
     switch (keycode) {
-        // SOCD implementation (WASD resolution)
         case SOCD_W:
-            if (record->event.pressed) {
-                if (s_down) {
-                    unregister_code(KC_S);
-                }
-                register_code(KC_W);
-                w_down = true;
-            } else {
-                unregister_code(KC_W);
-                w_down = false;
-                if (s_down) {
-                    register_code(KC_S);
-                }
-            }
+            handle_socd(record->event.pressed, KC_W, &w_down, KC_S, &s_down);
             return false;
-
         case SOCD_A:
-            if (record->event.pressed) {
-                if (d_down) {
-                    unregister_code(KC_D);
-                }
-                register_code(KC_A);
-                a_down = true;
-            } else {
-                unregister_code(KC_A);
-                a_down = false;
-                if (d_down) {
-                    register_code(KC_D);
-                }
-            }
+            handle_socd(record->event.pressed, KC_A, &a_down, KC_D, &d_down);
             return false;
-
         case SOCD_S:
-            if (record->event.pressed) {
-                if (w_down) {
-                    unregister_code(KC_W);
-                }
-                register_code(KC_S);
-                s_down = true;
-            } else {
-                unregister_code(KC_S);
-                s_down = false;
-                if (w_down) {
-                    register_code(KC_W);
-                }
-            }
+            handle_socd(record->event.pressed, KC_S, &s_down, KC_W, &w_down);
             return false;
-
         case SOCD_D:
-            if (record->event.pressed) {
-                if (a_down) {
-                    unregister_code(KC_A);
-                }
-                register_code(KC_D);
-                d_down = true;
-            } else {
-                unregister_code(KC_D);
-                d_down = false;
-                if (a_down) {
-                    register_code(KC_A);
-                }
-            }
+            handle_socd(record->event.pressed, KC_D, &d_down, KC_A, &a_down);
             return false;
-
         case SOCD_ON:
-            if (record->event.pressed) {
-                layer_on(WIN_GAME);
-            }
+            if (record->event.pressed) layer_on(WIN_GAME);
             return false;
-
         case SOCD_OFF:
-            if (record->event.pressed) {
-                layer_off(WIN_GAME);
-            }
+            if (record->event.pressed) layer_off(WIN_GAME);
             return false;
-
         case GAME_TOG:
             if (record->event.pressed) {
-                if (game_mode) {
-                    exit_game_mode();
-                } else {
-                    enter_game_mode();
-                }
+                if (game_mode) exit_game_mode();
+                else enter_game_mode();
             }
             return false;
     }
-
     return true;
 }
