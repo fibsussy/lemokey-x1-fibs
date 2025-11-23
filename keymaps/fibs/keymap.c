@@ -25,7 +25,9 @@ static bool d_down = false;
 
 static layer_state_t saved_layers = 0;
 static bool          game_mode    = false;
-static uint8_t       wasd_sequence = 0;  // 0=none, 1=W, 2=WA, 3=WAS, 4=WASD(trigger)
+static uint8_t       wasd_keys_pressed = 0;  // Bitmask: bit 0=W, 1=A, 2=S, 3=D
+static uint8_t       wasd_alternating_count = 0;  // Count of alternating WASD presses
+static uint8_t       last_wasd_key = 0;  // Track last WASD key pressed (1=W, 2=A, 3=S, 4=D)
 
 #define KC_TASK LGUI(KC_TAB)
 #define KC_FLXP LGUI(KC_E)
@@ -139,23 +141,48 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         return true;
     }
 
-    // WASD sequence detection for game mode entry (using physical key positions)
+    // WASD detection for game mode entry (using physical key positions)
     if (!game_mode && record->event.pressed) {
         bool is_wasd_key = is_w || is_a || is_s || is_d;
 
-        if (is_w && wasd_sequence == 0) {
-            wasd_sequence = 1;
-        } else if (is_a && wasd_sequence == 1) {
-            wasd_sequence = 2;
-        } else if (is_s && wasd_sequence == 2) {
-            wasd_sequence = 3;
-        } else if (is_d && wasd_sequence == 3) {
-            wasd_sequence = 0;  // Reset sequence
-            enter_game_mode();
-        } else if (!is_wasd_key) {
-            wasd_sequence = 0;  // Non-WASD key pressed, reset sequence
+        if (is_wasd_key) {
+            uint8_t current_key = is_w ? 1 : (is_a ? 2 : (is_s ? 3 : 4));
+
+            // Method 1: Track all 4 unique keys pressed in any order
+            if (is_w) wasd_keys_pressed |= (1 << 0);
+            if (is_a) wasd_keys_pressed |= (1 << 1);
+            if (is_s) wasd_keys_pressed |= (1 << 2);
+            if (is_d) wasd_keys_pressed |= (1 << 3);
+
+            // Check if all 4 keys have been pressed
+            if (wasd_keys_pressed == 0x0F) {  // 0b1111 = all 4 bits set
+                wasd_keys_pressed = 0;
+                wasd_alternating_count = 0;
+                last_wasd_key = 0;
+                enter_game_mode();
+                return true;
+            }
+
+            // Method 2: Track alternating presses (non-repeating)
+            if (current_key != last_wasd_key) {
+                wasd_alternating_count++;
+                last_wasd_key = current_key;
+
+                if (wasd_alternating_count >= 8) {
+                    wasd_keys_pressed = 0;
+                    wasd_alternating_count = 0;
+                    last_wasd_key = 0;
+                    enter_game_mode();
+                    return true;
+                }
+            }
+            // If same key pressed twice in a row, don't increment alternating count
+        } else {
+            // Non-WASD key pressed, reset all tracking
+            wasd_keys_pressed = 0;
+            wasd_alternating_count = 0;
+            last_wasd_key = 0;
         }
-        // If it's a WASD key but wrong order, don't reset - keep current sequence
     }
 
     switch (keycode) {
