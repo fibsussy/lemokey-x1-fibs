@@ -108,21 +108,39 @@ static void exit_game_mode(void) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // Get the physical row and column of the pressed key
+    uint8_t row = record->event.key.row;
+    uint8_t col = record->event.key.col;
+
+    // Physical key positions
+    bool is_w = (row == 2 && col == 2);
+    bool is_a = (row == 3 && col == 1);
+    bool is_s = (row == 3 && col == 2);
+    bool is_d = (row == 3 && col == 3);
+    bool is_j = (row == 3 && col == 7);      // J key
+    bool is_k = (row == 3 && col == 8);      // K key
+    bool is_l = (row == 3 && col == 9);      // L key
+    bool is_scln = (row == 3 && col == 10);  // ; key
+
+    // Exit game mode on Windows/GUI key press
+    if (game_mode && (keycode == KC_LGUI || keycode == KC_RGUI || keycode == KC_LWIN || keycode == KC_RWIN)) {
+        if (record->event.pressed) {
+            exit_game_mode();
+        }
+        return true;  // Process the key normally (will activate GUI)
+    }
+
+    // Exit game mode on right-hand homerow physical keys (J, K, L, ;) - these function as homerow mods
+    if (game_mode && (is_j || is_k || is_l || is_scln)) {
+        if (record->event.pressed) {
+            exit_game_mode();
+        }
+        // Let QMK handle the homerow mod tap/hold logic in the HRM layer
+        return true;
+    }
+
     // WASD sequence detection for game mode entry (using physical key positions)
     if (!game_mode && record->event.pressed) {
-        // Get the physical row and column of the pressed key
-        uint8_t row = record->event.key.row;
-        uint8_t col = record->event.key.col;
-
-        // W is at row 2, col 2
-        // A is at row 3, col 1
-        // S is at row 3, col 2
-        // D is at row 3, col 3
-
-        bool is_w = (row == 2 && col == 2);
-        bool is_a = (row == 3 && col == 1);
-        bool is_s = (row == 3 && col == 2);
-        bool is_d = (row == 3 && col == 3);
         bool is_wasd_key = is_w || is_a || is_s || is_d;
 
         if (is_w && wasd_sequence == 0) {
