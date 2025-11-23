@@ -151,7 +151,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 wasd_alternating_count++;
                 last_wasd_key = current_key;
             }
-            if (wasd_keys_pressed == 0x0F || wasd_alternating_count >= 8) {
+            if (wasd_keys_pressed == 0x0F || wasd_alternating_count >= 5) {
                 reset_wasd_tracking();
                 enter_game_mode();
                 return true;
