@@ -4,7 +4,7 @@ enum layers {
     WIN_BASE,
     WIN_HRM,
     WIN_NAV,
-    WIN_SOCD,
+    WIN_GAME,
     WIN_FN,
 };
 
@@ -25,6 +25,7 @@ static bool d_down = false;
 
 static layer_state_t saved_layers = 0;
 static bool          game_mode    = false;
+static uint8_t       wasd_sequence = 0;  // 0=none, 1=W, 2=WA, 3=WAS, 4=WASD(trigger)
 
 #define KC_TASK LGUI(KC_TAB)
 #define KC_FLXP LGUI(KC_E)
@@ -49,7 +50,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_CAPS,  KC_A,     KC_S,     KC_D,     KC_F,     KC_G,     KC_H,     KC_J,     KC_K,     KC_L,     KC_SCLN,  KC_QUOT,              KC_ENT,
         KC_LSFT,            KC_Z,     KC_X,     KC_C,     KC_V,     KC_B,     KC_N,     KC_M,     KC_COMM,  KC_DOT,   KC_SLSH,              KC_RSFT,            KC_UP,
         KC_LCTL,  KC_LWIN,  KC_LALT,                                KC_SPC,
-                      KC_RALT,  MO(WIN_FN), GAME_TOG, KC_RCTL,  KC_LEFT,  KC_DOWN,  KC_RGHT),
+                      KC_RALT,  MO(WIN_FN), KC_NO,    KC_RCTL,  KC_LEFT,  KC_DOWN,  KC_RGHT),
 
     [WIN_HRM] = LAYOUT_tkl_ansi(
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
@@ -68,13 +69,13 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,            _______,
         _______,  _______,  _______,                                _______,           _______,  _______,    _______,  _______,  _______,  _______,  _______),
 
-    [WIN_SOCD] = LAYOUT_tkl_ansi(
+    [WIN_GAME] = LAYOUT_tkl_ansi(
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
         _______,  _______,  SOCD_W,   _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
-        _______,  SOCD_A,   SOCD_S,   SOCD_D,   _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,
+        _______,  SOCD_A,   SOCD_S,   SOCD_D,   _______,  _______,  _______,  _______,  _______,  _______,  _______, _______,              _______,
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,            _______,
-        _______,  _______,  _______,                                _______,           _______,  _______,    _______,  _______,  _______,  _______,  _______),
+        _______,  _______,  _______,                                _______,            _______,  _______,  GAME_TOG,  _______,  _______,  _______,  _______),
 
     [WIN_FN] = LAYOUT_tkl_ansi(
         _______,            KC_BRID,  KC_BRIU,  KC_TASK,  KC_FLXP,  BL_DOWN,  BL_UP,    KC_MPRV,  KC_MPLY,  KC_MNXT,  KC_MUTE,    KC_VOLD,  KC_VOLU,  KC_PSCR,  _______,  BL_STEP,
@@ -91,8 +92,54 @@ void keyboard_post_init_user(void) {
     layer_on(WIN_HRM);
 }
 
+// Helper function to enter game mode
+static void enter_game_mode(void) {
+    tap_code(KC_F24);
+    saved_layers = layer_state;
+    layer_state_t new_state = (1UL << WIN_BASE) | (1UL << WIN_GAME);
+    layer_state_set(new_state);
+    game_mode = true;
+}
+
+static void exit_game_mode(void) {
+    tap_code(KC_F23);
+    layer_state_set(saved_layers);
+    game_mode = false;
+}
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // WASD sequence detection for game mode entry (using physical key positions)
+    if (!game_mode && record->event.pressed) {
+        // Get the physical row and column of the pressed key
+        uint8_t row = record->event.key.row;
+        uint8_t col = record->event.key.col;
+
+        // W is at row 2, col 2
+        // A is at row 3, col 1
+        // S is at row 3, col 2
+        // D is at row 3, col 3
+
+        bool is_w = (row == 2 && col == 2);
+        bool is_a = (row == 3 && col == 1);
+        bool is_s = (row == 3 && col == 2);
+        bool is_d = (row == 3 && col == 3);
+        bool is_wasd_key = is_w || is_a || is_s || is_d;
+
+        if (is_w && wasd_sequence == 0) {
+            wasd_sequence = 1;
+        } else if (is_a && wasd_sequence == 1) {
+            wasd_sequence = 2;
+        } else if (is_s && wasd_sequence == 2) {
+            wasd_sequence = 3;
+        } else if (is_d && wasd_sequence == 3) {
+            wasd_sequence = 0;  // Reset sequence
+            enter_game_mode();
+        } else if (!is_wasd_key) {
+            wasd_sequence = 0;  // Non-WASD key pressed, reset sequence
+        }
+        // If it's a WASD key but wrong order, don't reset - keep current sequence
+    }
+
     switch (keycode) {
         // SOCD implementation (WASD resolution)
         case SOCD_W:
@@ -159,36 +206,24 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             }
             return false;
 
-        // SOCD layer ON (set state)
         case SOCD_ON:
             if (record->event.pressed) {
-                layer_on(WIN_SOCD);
+                layer_on(WIN_GAME);
             }
             return false;
 
-        // SOCD layer OFF (set state)
         case SOCD_OFF:
             if (record->event.pressed) {
-                layer_off(WIN_SOCD);
+                layer_off(WIN_GAME);
             }
             return false;
 
-        // Game mode: save layer state, force base+SOCD+game, then restore on exit
         case GAME_TOG:
             if (record->event.pressed) {
                 if (game_mode) {
-                    tap_code(KC_F23);
-                    layer_state_set(saved_layers);
-                    game_mode = false;
+                    exit_game_mode();
                 } else {
-                    tap_code(KC_F24);
-                    saved_layers = layer_state;
-
-                    layer_state_t new_state = (1UL << WIN_BASE) |
-                                              (1UL << WIN_SOCD);
-
-                    layer_state_set(new_state);
-                    game_mode = true;
+                    enter_game_mode();
                 }
             }
             return false;
