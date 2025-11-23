@@ -13,8 +13,6 @@ enum custom_keycodes {
     SOCD_A,
     SOCD_S,
     SOCD_D,
-    SOCD_ON,
-    SOCD_OFF,
     GAME_TOG,
 };
 
@@ -81,7 +79,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [WIN_FN] = LAYOUT_tkl_ansi(
         _______,            KC_BRID,  KC_BRIU,  KC_TASK,  KC_FLXP,  BL_DOWN,  BL_UP,    KC_MPRV,  KC_MPLY,  KC_MNXT,  KC_MUTE,    KC_VOLD,  KC_VOLU,  KC_PSCR,  _______,  BL_STEP,
-        _______,  SOCD_ON,  SOCD_OFF, _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
+        _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
         BL_TOGG,  BL_STEP,  BL_UP,    _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
         _______,  _______,  BL_DOWN,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,
         _______,            _______,  _______,  _______,  _______,  _______,  NK_TOGG,  _______,  _______,  _______,  _______,              _______,            _______,
@@ -175,12 +173,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             return false;
         case SOCD_D:
             handle_socd(record->event.pressed, KC_D, &d_down, KC_A, &a_down);
-            return false;
-        case SOCD_ON:
-            if (record->event.pressed) layer_on(WIN_GAME);
-            return false;
-        case SOCD_OFF:
-            if (record->event.pressed) layer_off(WIN_GAME);
             return false;
         case GAME_TOG:
             if (record->event.pressed) {
