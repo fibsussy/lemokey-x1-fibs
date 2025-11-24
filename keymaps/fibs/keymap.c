@@ -8,24 +8,47 @@ enum layers {
     WIN_FN,
 };
 
+enum wasd_keys {
+    WASD_NONE = 0,
+    WASD_W = 1,
+    WASD_A = 2,
+    WASD_S = 3,
+    WASD_D = 4,
+};
+
 enum custom_keycodes {
     SOCD_W = SAFE_RANGE,
     SOCD_A,
     SOCD_S,
     SOCD_D,
-    GAME_TOG,
 };
 
-static bool w_down = false;
-static bool a_down = false;
-static bool s_down = false;
-static bool d_down = false;
+// SOCD state: what keys are physically held and what should be sent
+static bool w_held = false;
+static bool a_held = false;
+static bool s_held = false;
+static bool d_held = false;
+
+static bool socd_w_active = false;
+static bool socd_a_active = false;
+static bool socd_s_active = false;
+static bool socd_d_active = false;
+
+typedef struct {
+    uint8_t row;
+    uint8_t col;
+    uint8_t mod;
+    bool engaged;
+} mod_registry_t;
+
+#define MAX_MOD_REGISTRY 8
+static mod_registry_t mod_registry[MAX_MOD_REGISTRY];
 
 static layer_state_t saved_layers = 0;
 static bool          game_mode    = false;
 static uint8_t       wasd_keys_pressed = 0;
 static uint8_t       wasd_alternating_count = 0;
-static uint8_t       last_wasd_key = 0;
+static uint8_t       last_wasd_key = WASD_NONE;
 
 #define KC_TASK LGUI(KC_TAB)
 #define KC_FLXP LGUI(KC_E)
@@ -75,7 +98,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______,  _______,  SOCD_W,   _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
         _______,  SOCD_A,   SOCD_S,   SOCD_D,   _______,  _______,  _______,  _______,  _______,  _______,  _______, _______,              _______,
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,            _______,
-        _______,  _______,  _______,                                _______,            _______,  _______,  GAME_TOG,  _______,  _______,  _______,  _______),
+        _______,  _______,  _______,                                _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______),
 
     [WIN_FN] = LAYOUT_tkl_ansi(
         _______,            KC_BRID,  KC_BRIU,  KC_TASK,  KC_FLXP,  BL_DOWN,  BL_UP,    KC_MPRV,  KC_MPLY,  KC_MNXT,  KC_MUTE,    KC_VOLD,  KC_VOLU,  KC_PSCR,  _______,  BL_STEP,
@@ -92,21 +115,132 @@ void keyboard_post_init_user(void) {
     layer_on(WIN_HRM);
 }
 
+static uint8_t get_wasd_key(uint8_t row, uint8_t col) {
+    if (row == 2 && col == 2) return WASD_W;
+    if (row == 3 && col == 1) return WASD_A;
+    if (row == 3 && col == 2) return WASD_S;
+    if (row == 3 && col == 3) return WASD_D;
+    return WASD_NONE;
+}
+
 static void reset_wasd_tracking(void) {
     wasd_keys_pressed = 0;
     wasd_alternating_count = 0;
-    last_wasd_key = 0;
+    last_wasd_key = WASD_NONE;
 }
 
-static void handle_socd(bool pressed, uint16_t key, bool *key_down, uint16_t opposite_key, bool *opposite_down) {
-    if (pressed) {
-        if (*opposite_down) unregister_code(opposite_key);
-        register_code(key);
-        *key_down = true;
+static void register_mod_at_position(uint8_t row, uint8_t col, uint8_t mod) {
+    for (int i = 0; i < MAX_MOD_REGISTRY; i++) {
+        if (!mod_registry[i].engaged) {
+            mod_registry[i].row = row;
+            mod_registry[i].col = col;
+            mod_registry[i].mod = mod;
+            mod_registry[i].engaged = true;
+            return;
+        }
+    }
+}
+
+static void unregister_mod_at_position(uint8_t row, uint8_t col) {
+    for (int i = 0; i < MAX_MOD_REGISTRY; i++) {
+        if (mod_registry[i].engaged && mod_registry[i].row == row && mod_registry[i].col == col) {
+            unregister_mods(mod_registry[i].mod);
+            mod_registry[i].engaged = false;
+            return;
+        }
+    }
+}
+
+// SOCD logic: track physical keys and compute which should be active
+static uint8_t last_vertical_key = WASD_NONE;
+static uint8_t last_horizontal_key = WASD_NONE;
+
+static void update_socd_state(uint8_t wasd_key, bool pressed) {
+    if (!wasd_key) return;
+
+    // Update physical state
+    switch (wasd_key) {
+        case WASD_W:
+            w_held = pressed;
+            if (pressed) last_vertical_key = WASD_W;
+            break;
+        case WASD_A:
+            a_held = pressed;
+            if (pressed) last_horizontal_key = WASD_A;
+            break;
+        case WASD_S:
+            s_held = pressed;
+            if (pressed) last_vertical_key = WASD_S;
+            break;
+        case WASD_D:
+            d_held = pressed;
+            if (pressed) last_horizontal_key = WASD_D;
+            break;
+    }
+
+    if (w_held && !s_held) {
+        socd_w_active = true;
+        socd_s_active = false;
+    } else if (s_held && !w_held) {
+        socd_s_active = true;
+        socd_w_active = false;
+    } else if (w_held && s_held) {
+        if (last_vertical_key == WASD_W) {
+            socd_w_active = true;
+            socd_s_active = false;
+        } else {
+            socd_s_active = true;
+            socd_w_active = false;
+        }
     } else {
-        unregister_code(key);
-        *key_down = false;
-        if (*opposite_down) register_code(opposite_key);
+        socd_w_active = false;
+        socd_s_active = false;
+    }
+
+    if (a_held && !d_held) {
+        socd_a_active = true;
+        socd_d_active = false;
+    } else if (d_held && !a_held) {
+        socd_d_active = true;
+        socd_a_active = false;
+    } else if (a_held && d_held) {
+        // Both held - last input wins
+        if (last_horizontal_key == WASD_A) {
+            socd_a_active = true;
+            socd_d_active = false;
+        } else {
+            socd_d_active = true;
+            socd_a_active = false;
+        }
+    } else {
+        socd_a_active = false;
+        socd_d_active = false;
+    }
+}
+
+static void apply_socd_to_os(void) {
+    if (socd_w_active) {
+        register_code(KC_W);
+    } else {
+        unregister_code(KC_W);
+    }
+
+    if (socd_a_active) {
+        register_code(KC_A);
+    } else {
+        unregister_code(KC_A);
+    }
+
+    if (socd_s_active) {
+        register_code(KC_S);
+    } else {
+        unregister_code(KC_S);
+    }
+
+    if (socd_d_active) {
+        register_code(KC_D);
+    } else {
+        unregister_code(KC_D);
     }
 }
 
@@ -115,6 +249,7 @@ static void enter_game_mode(void) {
     layer_state_t new_state = (1UL << WIN_BASE) | (1UL << WIN_GAME);
     layer_state_set(new_state);
     game_mode = true;
+    apply_socd_to_os();
     uint8_t saved_mods = get_mods();
     clear_mods();
     tap_code(KC_F24);
@@ -122,6 +257,10 @@ static void enter_game_mode(void) {
 }
 
 static void exit_game_mode(void) {
+    socd_w_active = false;
+    socd_a_active = false;
+    socd_s_active = false;
+    socd_d_active = false;
     layer_state_set(saved_layers);
     game_mode = false;
     uint8_t saved_mods = get_mods();
@@ -130,61 +269,95 @@ static void exit_game_mode(void) {
     set_mods(saved_mods);
 }
 
+static bool handle_game_mode_exit(uint16_t keycode, bool pressed, bool is_home_row_exit) {
+    if (!pressed) return false;
+
+    if (keycode == KC_LGUI || keycode == KC_RGUI || keycode == KC_LWIN || keycode == KC_RWIN) {
+        exit_game_mode();
+        return true;
+    }
+    if (is_home_row_exit) {
+        exit_game_mode();
+        return true;
+    }
+    return false;
+}
+
+static void handle_game_mode_entry(uint8_t wasd_key, bool pressed) {
+    if (game_mode || !pressed) return;
+
+    if (wasd_key) {
+        wasd_keys_pressed |= (1 << (wasd_key - 1));
+        if (wasd_key != last_wasd_key) {
+            wasd_alternating_count++;
+            last_wasd_key = wasd_key;
+        }
+        if (wasd_keys_pressed == 0x0F || wasd_alternating_count >= 5) {
+            reset_wasd_tracking();
+            enter_game_mode();
+        }
+    } else {
+        reset_wasd_tracking();
+    }
+}
+
+static void handle_home_row_mod_press(uint16_t keycode, uint8_t row, uint8_t col) {
+    switch (keycode) {
+        case HM_A:
+            register_mod_at_position(row, col, MOD_BIT(KC_LGUI));
+            break;
+        case HM_S:
+            register_mod_at_position(row, col, MOD_BIT(KC_LALT));
+            break;
+        case HM_D:
+            register_mod_at_position(row, col, MOD_BIT(KC_LCTL));
+            break;
+        case HM_F:
+            register_mod_at_position(row, col, MOD_BIT(KC_LSFT));
+            break;
+        case HM_J:
+            register_mod_at_position(row, col, MOD_BIT(KC_RSFT));
+            break;
+        case HM_K:
+            register_mod_at_position(row, col, MOD_BIT(KC_RCTL));
+            break;
+        case HM_L:
+            register_mod_at_position(row, col, MOD_BIT(KC_RALT));
+            break;
+        case HM_SCL:
+            register_mod_at_position(row, col, MOD_BIT(KC_RGUI));
+            break;
+    }
+}
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     uint8_t row = record->event.key.row;
     uint8_t col = record->event.key.col;
-    bool is_w = (row == 2 && col == 2);
-    bool is_a = (row == 3 && col == 1);
-    bool is_s = (row == 3 && col == 2);
-    bool is_d = (row == 3 && col == 3);
-    bool is_j = (row == 3 && col == 7);
-    bool is_k = (row == 3 && col == 8);
-    bool is_l = (row == 3 && col == 9);
-    bool is_scln = (row == 3 && col == 10);
-    if (game_mode && (keycode == KC_LGUI || keycode == KC_RGUI || keycode == KC_LWIN || keycode == KC_RWIN)) {
-        if (record->event.pressed) exit_game_mode();
-        return true;
-    }
-    if (game_mode && (is_j || is_k || is_l || is_scln)) {
-        if (record->event.pressed) exit_game_mode();
-        return true;
-    }
-    if (!game_mode && record->event.pressed) {
-        uint8_t current_key = is_w ? 1 : (is_a ? 2 : (is_s ? 3 : (is_d ? 4 : 0)));
-        if (current_key) {
-            wasd_keys_pressed |= (1 << (current_key - 1));
-            if (current_key != last_wasd_key) {
-                wasd_alternating_count++;
-                last_wasd_key = current_key;
-            }
-            if (wasd_keys_pressed == 0x0F || wasd_alternating_count >= 5) {
-                reset_wasd_tracking();
-                enter_game_mode();
-            }
-        } else {
-            reset_wasd_tracking();
+    uint8_t wasd_key = get_wasd_key(row, col);
+    bool is_home_row_exit = (row == 3 && (col >= 7 && col <= 10));
+
+    update_socd_state(wasd_key, record->event.pressed);
+
+    if (game_mode) {
+        apply_socd_to_os();
+        if (handle_game_mode_exit(keycode, record->event.pressed, is_home_row_exit)) {
+            return true;
         }
     }
 
-    switch (keycode) {
-        case SOCD_W:
-            handle_socd(record->event.pressed, KC_W, &w_down, KC_S, &s_down);
-            return false;
-        case SOCD_A:
-            handle_socd(record->event.pressed, KC_A, &a_down, KC_D, &d_down);
-            return false;
-        case SOCD_S:
-            handle_socd(record->event.pressed, KC_S, &s_down, KC_W, &w_down);
-            return false;
-        case SOCD_D:
-            handle_socd(record->event.pressed, KC_D, &d_down, KC_A, &a_down);
-            return false;
-        case GAME_TOG:
-            if (record->event.pressed) {
-                if (game_mode) exit_game_mode();
-                else enter_game_mode();
-            }
-            return false;
+    if (!record->event.pressed) {
+        unregister_mod_at_position(row, col);
     }
+
+    handle_game_mode_entry(wasd_key, record->event.pressed);
+
+    if (keycode == SOCD_W || keycode == SOCD_A || keycode == SOCD_S || keycode == SOCD_D) {
+        return false;
+    }
+
+    if (record->event.pressed) {
+        handle_home_row_mod_press(keycode, row, col);
+    }
+
     return true;
 }
