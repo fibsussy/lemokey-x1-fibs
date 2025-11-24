@@ -111,17 +111,23 @@ static void handle_socd(bool pressed, uint16_t key, bool *key_down, uint16_t opp
 }
 
 static void enter_game_mode(void) {
-    tap_code(KC_F24);
     saved_layers = layer_state;
     layer_state_t new_state = (1UL << WIN_BASE) | (1UL << WIN_GAME);
     layer_state_set(new_state);
     game_mode = true;
+    uint8_t saved_mods = get_mods();
+    clear_mods();
+    tap_code(KC_F24);
+    set_mods(saved_mods);
 }
 
 static void exit_game_mode(void) {
-    tap_code(KC_F23);
     layer_state_set(saved_layers);
     game_mode = false;
+    uint8_t saved_mods = get_mods();
+    clear_mods();
+    tap_code(KC_F23);
+    set_mods(saved_mods);
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
@@ -154,7 +160,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             if (wasd_keys_pressed == 0x0F || wasd_alternating_count >= 5) {
                 reset_wasd_tracking();
                 enter_game_mode();
-                return true;
             }
         } else {
             reset_wasd_tracking();
