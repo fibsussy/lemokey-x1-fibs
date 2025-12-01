@@ -22,7 +22,10 @@ enum custom_keycodes {
     SOCD_A,
     SOCD_S,
     SOCD_D,
-    PASS,
+};
+
+enum {
+    TD_PASS = 0,
 };
 
 
@@ -96,7 +99,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______,  _______,  MO(WIN_NAV),                            _______,                                _______,  _______,    _______,  _______,  _______,  _______,  _______),
 
     [WIN_NAV] = LAYOUT_tkl_ansi(
-        _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  PASS,
+        _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  TD(TD_PASS),
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  MS_BTN3,  MS_WHLU,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  MS_BTN1,  MS_BTN2,  MS_WHLD,
         _______,  KC_LGUI,  KC_LALT,  KC_LCTL,  KC_LSFT,  _______,  KC_LEFT,  KC_DOWN,  KC_UP,    KC_RGHT,  _______,  _______,              _______,                                
@@ -341,6 +344,18 @@ static void handle_home_row_mod_press(uint16_t keycode, uint8_t row, uint8_t col
     }
 }
 
+void td_pass_finished(tap_dance_state_t *state, void *user_data) {
+    if (state->count == 1) {
+        SEND_STRING(SECRET_PASS);
+    } else if (state->count == 2) {
+        SEND_STRING(SECRET_PASS SS_TAP(X_ENTER));
+    }
+}
+
+tap_dance_action_t tap_dance_actions[] = {
+    [TD_PASS] = ACTION_TAP_DANCE_FN(td_pass_finished),
+};
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     uint8_t row = record->event.key.row;
     uint8_t col = record->event.key.col;
@@ -362,15 +377,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 
     handle_game_mode_entry(wasd_key, record->event.pressed);
 
-    if (record->event.pressed) {
-        switch (keycode) {
-            case PASS:
-                SEND_STRING(SECRET_PASS);
-                return false;
-        }
-    }
-
-
     if (keycode == SOCD_W || keycode == SOCD_A || keycode == SOCD_S || keycode == SOCD_D) {
         return false;
     }
@@ -381,3 +387,4 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 
     return true;
 }
+
