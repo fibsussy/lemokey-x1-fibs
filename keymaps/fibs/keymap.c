@@ -1,4 +1,5 @@
 #include QMK_KEYBOARD_H
+#include "secrets.h"
 
 enum layers {
     WIN_BASE,
@@ -21,6 +22,7 @@ enum custom_keycodes {
     SOCD_A,
     SOCD_S,
     SOCD_D,
+    PASS,
 };
 
 
@@ -94,7 +96,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______,  _______,  MO(WIN_NAV),                            _______,                                _______,  _______,    _______,  _______,  _______,  _______,  _______),
 
     [WIN_NAV] = LAYOUT_tkl_ansi(
-        _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
+        _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  PASS,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  MS_BTN3,  MS_WHLU,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  MS_BTN1,  MS_BTN2,  MS_WHLD,
         _______,  KC_LGUI,  KC_LALT,  KC_LCTL,  KC_LSFT,  _______,  KC_LEFT,  KC_DOWN,  KC_UP,    KC_RGHT,  _______,  _______,              _______,                                
@@ -359,6 +361,15 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     }
 
     handle_game_mode_entry(wasd_key, record->event.pressed);
+
+    if (record->event.pressed) {
+        switch (keycode) {
+            case PASS:
+                SEND_STRING(SECRET_PASS);
+                return false;
+        }
+    }
+
 
     if (keycode == SOCD_W || keycode == SOCD_A || keycode == SOCD_S || keycode == SOCD_D) {
         return false;
