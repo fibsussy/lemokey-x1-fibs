@@ -22,6 +22,8 @@ enum custom_keycodes {
     SOCD_A,
     SOCD_S,
     SOCD_D,
+    SOCD_ON,
+    SOCD_OFF,
 };
 
 enum {
@@ -62,6 +64,7 @@ static mod_registry_t mod_registry[MAX_MOD_REGISTRY];
 
 static layer_state_t saved_layers = 0;
 static bool          game_mode    = false;
+static bool          socd_enabled = true;
 static uint8_t       wasd_keys_pressed = 0;
 static uint8_t       wasd_alternating_count = 0;
 static uint8_t       last_wasd_key = WASD_NONE;
@@ -117,7 +120,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [WIN_FN] = LAYOUT_tkl_ansi(
         _______,            KC_BRID,  KC_BRIU,  KC_TASK,  KC_FLXP,  BL_DOWN,  BL_UP,    KC_MPRV,  KC_MPLY,  KC_MNXT,  KC_MUTE,    KC_VOLD,  KC_VOLU,  KC_PSCR,  _______,  BL_STEP,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
-        BL_TOGG,  BL_STEP,  BL_UP,    _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
+        BL_TOGG,  BL_STEP,  BL_UP,    _______,  _______,  _______,  _______,  _______,  _______,  SOCD_OFF, _______,  _______,    _______,  _______,  _______,  _______,  _______,
         _______,  _______,  BL_DOWN,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,
         _______,            _______,  _______,  _______,  _______,  _______,  NK_TOGG,  _______,  _______,  _______,  _______,              _______,            _______,
         _______,  GU_TOGG,  _______,                                _______,                                _______,  _______,    _______,  _______,  _______,  _______,  _______)
@@ -362,10 +365,75 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     uint8_t wasd_key = get_wasd_key(row, col);
     bool is_home_row_exit = (row == 3 && (col >= 7 && col <= 10));
 
+    // Handle SOCD toggle keycodes
+    if (keycode == SOCD_OFF && record->event.pressed) {
+        // Check if shift is held: FN+Shift+O = ON, FN+O = OFF
+        uint8_t mods = get_mods();
+        bool shift_held = (mods & MOD_MASK_SHIFT);
+
+        if (shift_held) {
+            // FN + Shift + O = Turn SOCD ON
+            socd_enabled = true;
+        } else {
+            // FN + O = Turn SOCD OFF
+            socd_enabled = false;
+            // Clear any active SOCD state
+            socd_w_active = false;
+            socd_a_active = false;
+            socd_s_active = false;
+            socd_d_active = false;
+            unregister_code(KC_W);
+            unregister_code(KC_A);
+            unregister_code(KC_S);
+            unregister_code(KC_D);
+        }
+        return false;
+    }
+    if (keycode == SOCD_ON && record->event.pressed) {
+        socd_enabled = true;
+        return false;
+    }
+
+    // If SOCD is disabled in game mode, make SOCD keys act like regular keys
+    if (game_mode && !socd_enabled) {
+        switch (keycode) {
+            case SOCD_W:
+                if (record->event.pressed) {
+                    register_code(KC_W);
+                } else {
+                    unregister_code(KC_W);
+                }
+                return false;
+            case SOCD_A:
+                if (record->event.pressed) {
+                    register_code(KC_A);
+                } else {
+                    unregister_code(KC_A);
+                }
+                return false;
+            case SOCD_S:
+                if (record->event.pressed) {
+                    register_code(KC_S);
+                } else {
+                    unregister_code(KC_S);
+                }
+                return false;
+            case SOCD_D:
+                if (record->event.pressed) {
+                    register_code(KC_D);
+                } else {
+                    unregister_code(KC_D);
+                }
+                return false;
+        }
+    }
+
     update_socd_state(wasd_key, record->event.pressed);
 
     if (game_mode) {
-        apply_socd_to_os();
+        if (socd_enabled) {
+            apply_socd_to_os();
+        }
         if (handle_game_mode_exit(keycode, record->event.pressed, is_home_row_exit)) {
             return true;
         }
