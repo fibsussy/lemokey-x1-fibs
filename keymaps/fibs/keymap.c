@@ -280,7 +280,6 @@ static void enter_game_mode(void) {
 
     uint8_t saved_mods = get_mods();
     clear_mods();
-    tap_code(KC_F24);
     set_mods(saved_mods);
 }
 
@@ -299,7 +298,6 @@ static void exit_game_mode(void) {
 
     uint8_t saved_mods = get_mods();
     clear_mods();
-    tap_code(KC_F23);
     set_mods(saved_mods);
 }
 

@@ -2,6 +2,14 @@
 
 Automatically switches your QMK keyboard to game mode when you focus a gamescope window in Niri.
 
+## Features
+
+- **Automatic Window Detection**: Monitors niri for gamescope windows and toggles game mode
+- **Hot-Plug Support**: Waits for keyboard if not connected, handles unplugging/replugging automatically
+- **Background Service**: Runs indefinitely as a systemd user service
+- **Smart Reconnection**: 5-second retry interval with detailed logging
+- **Multi-Keyboard Support**: Can target specific keyboards by VID/PID or auto-detect
+
 ## How It Works
 
 1. **QMK Firmware**: Added RAW HID support to receive commands from the host
@@ -63,34 +71,83 @@ KEYBOARD_VID=0x3434 KEYBOARD_PID=0x01f0 ./target/release/niri-gamemode-daemon
 
 ## Running as a Service
 
-To run automatically on login, create a systemd user service:
+The daemon now includes automatic reconnection logic - it will:
+- Wait for the keyboard if it's not plugged in at startup
+- Automatically reconnect if the keyboard is unplugged and replugged
+- Keep running in the background indefinitely
+
+### Install as systemd user service
+
+**Option 1: Quick install**
 
 ```bash
+# Build release binary
+cargo build --release
+
+# Install to user bin directory
+cargo install --path .
+
+# Install systemd service
 mkdir -p ~/.config/systemd/user/
-cat > ~/.config/systemd/user/niri-gamemode-daemon.service <<EOF
-[Unit]
-Description=Niri GameMode Keyboard Daemon
-After=graphical-session.target
-
-[Service]
-Type=simple
-ExecStart=/home/fib/Code/lemokey-x1-fibs/niri-gamemode-daemon/target/release/niri-gamemode-daemon
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-EOF
+cp niri-gamemode-daemon.service ~/.config/systemd/user/
 
 # Enable and start
 systemctl --user daemon-reload
 systemctl --user enable --now niri-gamemode-daemon.service
+```
 
+**Option 2: Manual setup**
+
+```bash
+# Copy service file
+mkdir -p ~/.config/systemd/user/
+cp niri-gamemode-daemon.service ~/.config/systemd/user/
+
+# Edit the service file if needed (e.g., to set VID/PID)
+nano ~/.config/systemd/user/niri-gamemode-daemon.service
+
+# Enable and start
+systemctl --user daemon-reload
+systemctl --user enable --now niri-gamemode-daemon.service
+```
+
+### Manage the service
+
+```bash
 # Check status
 systemctl --user status niri-gamemode-daemon.service
 
 # View logs
 journalctl --user -u niri-gamemode-daemon.service -f
+
+# Restart
+systemctl --user restart niri-gamemode-daemon.service
+
+# Stop
+systemctl --user stop niri-gamemode-daemon.service
+
+# Disable autostart
+systemctl --user disable niri-gamemode-daemon.service
+```
+
+### Specify a keyboard (optional)
+
+If you have multiple keyboards, edit the service file to uncomment and set VID/PID:
+
+```bash
+nano ~/.config/systemd/user/niri-gamemode-daemon.service
+```
+
+Uncomment and modify these lines:
+```ini
+Environment="KEYBOARD_VID=0x362D"
+Environment="KEYBOARD_PID=0x0210"
+```
+
+Then reload:
+```bash
+systemctl --user daemon-reload
+systemctl --user restart niri-gamemode-daemon.service
 ```
 
 ## Troubleshooting
@@ -111,9 +168,17 @@ sudo usermod -a -G input $USER
 
 ### Daemon Can't Find Keyboard
 
+The daemon will automatically wait for the keyboard and retry every 5 seconds. Check the logs to see what's happening:
+
+```bash
+journalctl --user -u niri-gamemode-daemon.service -f
+```
+
+If it's still not working:
 - Make sure you flashed the updated firmware with `RAW_ENABLE = yes`
-- Try running with sudo to rule out permissions: `sudo ./target/release/niri-gamemode-daemon`
 - Check if the RAW HID interface exists: `ls -la /dev/hidraw*`
+- Try running manually to see detailed output: `~/.cargo/bin/niri-gamemode-daemon`
+- Verify permissions (see section above)
 
 ### Niri Command Not Found
 
