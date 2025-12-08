@@ -1,0 +1,15 @@
+# Rust daemon build artifacts
+/niri-gamemode-daemon/target/
+/niri-gamemode-daemon/Cargo.lock
+
+# Editor files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# QMK build artifacts
+*.bin
+*.hex
+*.elf
+*.o

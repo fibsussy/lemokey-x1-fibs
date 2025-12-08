@@ -1,4 +1,5 @@
 #include QMK_KEYBOARD_H
+#include "raw_hid.h"
 #include "secrets.h"
 
 enum layers {
@@ -358,6 +359,50 @@ void td_pass_finished(tap_dance_state_t *state, void *user_data) {
 tap_dance_action_t tap_dance_actions[] = {
     [TD_PASS] = ACTION_TAP_DANCE_FN(td_pass_finished),
 };
+
+// RAW HID protocol for host communication
+#define HID_CMD_ENTER_GAME_MODE 0x01
+#define HID_CMD_EXIT_GAME_MODE  0x02
+#define HID_CMD_QUERY_STATUS    0x03
+
+void raw_hid_receive(uint8_t *data, uint8_t length) {
+    if (length < 1) return;
+
+    uint8_t command = data[0];
+    uint8_t response[32] = {0};
+
+    switch (command) {
+        case HID_CMD_ENTER_GAME_MODE:
+            if (!game_mode) {
+                enter_game_mode();
+            }
+            response[0] = 0x01; // ACK
+            response[1] = game_mode ? 0x01 : 0x00;
+            raw_hid_send(response, 32);
+            break;
+
+        case HID_CMD_EXIT_GAME_MODE:
+            if (game_mode) {
+                exit_game_mode();
+            }
+            response[0] = 0x02; // ACK
+            response[1] = game_mode ? 0x01 : 0x00;
+            raw_hid_send(response, 32);
+            break;
+
+        case HID_CMD_QUERY_STATUS:
+            response[0] = 0x03; // ACK
+            response[1] = game_mode ? 0x01 : 0x00;
+            raw_hid_send(response, 32);
+            break;
+
+        default:
+            // Unknown command - send error
+            response[0] = 0xFF;
+            raw_hid_send(response, 32);
+            break;
+    }
+}
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     uint8_t row = record->event.key.row;
