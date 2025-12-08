@@ -98,7 +98,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  _______,
-        _______,  HM_A,     HM_S,     HM_D,     HM_F,     _______,  _______,  HM_J,     HM_K,     HM_L,     HM_SCL,   _______,              _______,                                
+        _______,  HM_A,     HM_S,     HM_D,     HM_F,     _______,  _______,  HM_J,     HM_K,     HM_L,     HM_SCL,   _______,              _______,
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,            _______,
         _______,  _______,  MO(WIN_NAV),                            _______,                                _______,  _______,    _______,  _______,  _______,  _______,  _______),
 
@@ -106,7 +106,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  _______,  TD(TD_PASS),
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  _______,  MS_BTN3,  MS_WHLU,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,    _______,  _______,  MS_BTN1,  MS_BTN2,  MS_WHLD,
-        _______,  KC_LGUI,  KC_LALT,  KC_LCTL,  KC_LSFT,  _______,  KC_LEFT,  KC_DOWN,  KC_UP,    KC_RGHT,  _______,  _______,              _______,                                
+        _______,  KC_LGUI,  KC_LALT,  KC_LCTL,  KC_LSFT,  _______,  KC_LEFT,  KC_DOWN,  KC_UP,    KC_RGHT,  _______,  _______,              _______,
         _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,              _______,            MS_UP,
         _______,  _______,  _______,                                _______,                                _______,  _______,    _______,  _______,  MS_LEFT,  MS_DOWN,  MS_RIGHT),
 
@@ -262,12 +262,22 @@ static void apply_socd_to_os(void) {
     }
 }
 
+static void unregister_all_wasd(void) {
+    unregister_code(KC_W);
+    unregister_code(KC_A);
+    unregister_code(KC_S);
+    unregister_code(KC_D);
+}
+
 static void enter_game_mode(void) {
     saved_layers = layer_state;
     layer_state_t new_state = (1UL << WIN_BASE) | (1UL << WIN_GAME);
     layer_state_set(new_state);
     game_mode = true;
-    apply_socd_to_os();
+
+    // DON'T apply SOCD immediately - let the next key event handle it
+    // This prevents applying stale state when no keys are held
+
     uint8_t saved_mods = get_mods();
     clear_mods();
     tap_code(KC_F24);
@@ -275,27 +285,31 @@ static void enter_game_mode(void) {
 }
 
 static void exit_game_mode(void) {
+    // CRITICAL: Unregister all WASD keys BEFORE resetting state
+    unregister_all_wasd();
+
+    // Reset SOCD state
     socd_w_active = false;
     socd_a_active = false;
     socd_s_active = false;
     socd_d_active = false;
+
     layer_state_set(saved_layers);
     game_mode = false;
+
     uint8_t saved_mods = get_mods();
     clear_mods();
     tap_code(KC_F23);
     set_mods(saved_mods);
 }
 
-static bool handle_game_mode_exit(uint16_t keycode, bool pressed, bool is_home_row_exit) {
+static bool should_exit_game_mode(uint16_t keycode, bool pressed, bool is_home_row_exit) {
     if (!pressed) return false;
 
     if (keycode == KC_LGUI || keycode == KC_RGUI || keycode == KC_LWIN || keycode == KC_RWIN) {
-        exit_game_mode();
         return true;
     }
     if (is_home_row_exit) {
-        exit_game_mode();
         return true;
     }
     return false;
@@ -346,6 +360,60 @@ static void handle_home_row_mod_press(uint16_t keycode, uint8_t row, uint8_t col
             register_mod_at_position(row, col, MOD_BIT(KC_RGUI));
             break;
     }
+}
+
+static bool handle_socd_toggle(uint16_t keycode, bool pressed) {
+    if (keycode == SOCD_OFF && pressed) {
+        uint8_t mods = get_mods();
+        bool shift_held = (mods & MOD_MASK_SHIFT);
+
+        if (shift_held) {
+            socd_enabled = true;
+        } else {
+            socd_enabled = false;
+            socd_w_active = false;
+            socd_a_active = false;
+            socd_s_active = false;
+            socd_d_active = false;
+            unregister_all_wasd();
+        }
+        return true;  // Handled
+    }
+
+    if (keycode == SOCD_ON && pressed) {
+        socd_enabled = true;
+        return true;  // Handled
+    }
+
+    return false;  // Not handled
+}
+
+static bool handle_socd_keys_when_disabled(uint16_t keycode, bool pressed) {
+    if (!game_mode || socd_enabled) {
+        return false;  // Not applicable
+    }
+
+    // SOCD disabled in game mode - pass through as regular keys
+    switch (keycode) {
+        case SOCD_W:
+            if (pressed) register_code(KC_W);
+            else unregister_code(KC_W);
+            return true;
+        case SOCD_A:
+            if (pressed) register_code(KC_A);
+            else unregister_code(KC_A);
+            return true;
+        case SOCD_S:
+            if (pressed) register_code(KC_S);
+            else unregister_code(KC_S);
+            return true;
+        case SOCD_D:
+            if (pressed) register_code(KC_D);
+            else unregister_code(KC_D);
+            return true;
+    }
+
+    return false;
 }
 
 void td_pass_finished(tap_dance_state_t *state, void *user_data) {
@@ -409,95 +477,51 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     uint8_t col = record->event.key.col;
     uint8_t wasd_key = get_wasd_key(row, col);
     bool is_home_row_exit = (row == 3 && (col >= 7 && col <= 10));
+    bool pressed = record->event.pressed;
 
-    // Handle SOCD toggle keycodes
-    if (keycode == SOCD_OFF && record->event.pressed) {
-        // Check if shift is held: FN+Shift+O = ON, FN+O = OFF
-        uint8_t mods = get_mods();
-        bool shift_held = (mods & MOD_MASK_SHIFT);
-
-        if (shift_held) {
-            // FN + Shift + O = Turn SOCD ON
-            socd_enabled = true;
-        } else {
-            // FN + O = Turn SOCD OFF
-            socd_enabled = false;
-            // Clear any active SOCD state
-            socd_w_active = false;
-            socd_a_active = false;
-            socd_s_active = false;
-            socd_d_active = false;
-            unregister_code(KC_W);
-            unregister_code(KC_A);
-            unregister_code(KC_S);
-            unregister_code(KC_D);
-        }
-        return false;
-    }
-    if (keycode == SOCD_ON && record->event.pressed) {
-        socd_enabled = true;
+    // 1. Handle SOCD toggle commands
+    if (handle_socd_toggle(keycode, pressed)) {
         return false;
     }
 
-    // If SOCD is disabled in game mode, make SOCD keys act like regular keys
-    if (game_mode && !socd_enabled) {
-        switch (keycode) {
-            case SOCD_W:
-                if (record->event.pressed) {
-                    register_code(KC_W);
-                } else {
-                    unregister_code(KC_W);
-                }
-                return false;
-            case SOCD_A:
-                if (record->event.pressed) {
-                    register_code(KC_A);
-                } else {
-                    unregister_code(KC_A);
-                }
-                return false;
-            case SOCD_S:
-                if (record->event.pressed) {
-                    register_code(KC_S);
-                } else {
-                    unregister_code(KC_S);
-                }
-                return false;
-            case SOCD_D:
-                if (record->event.pressed) {
-                    register_code(KC_D);
-                } else {
-                    unregister_code(KC_D);
-                }
-                return false;
-        }
+    // 2. Handle SOCD keys when SOCD is disabled
+    if (handle_socd_keys_when_disabled(keycode, pressed)) {
+        return false;
     }
 
-    update_socd_state(wasd_key, record->event.pressed);
+    // 3. Update SOCD state based on physical key positions
+    update_socd_state(wasd_key, pressed);
 
+    // 4. Apply SOCD if in game mode
     if (game_mode) {
         if (socd_enabled) {
             apply_socd_to_os();
         }
-        if (handle_game_mode_exit(keycode, record->event.pressed, is_home_row_exit)) {
+
+        // 5. Check for game mode exit
+        if (should_exit_game_mode(keycode, pressed, is_home_row_exit)) {
+            exit_game_mode();
             return true;
         }
     }
 
-    if (!record->event.pressed) {
+    // 6. Unregister home row mods on key release
+    if (!pressed) {
         unregister_mod_at_position(row, col);
     }
 
-    handle_game_mode_entry(wasd_key, record->event.pressed);
+    // 7. Check for game mode entry (auto-detect rapid WASD)
+    handle_game_mode_entry(wasd_key, pressed);
 
+    // 8. Block SOCD keys from propagating
     if (keycode == SOCD_W || keycode == SOCD_A || keycode == SOCD_S || keycode == SOCD_D) {
         return false;
     }
 
-    if (record->event.pressed) {
+    // 9. Handle home row mod registration
+    if (pressed) {
         handle_home_row_mod_press(keycode, row, col);
     }
 
     return true;
 }
-
